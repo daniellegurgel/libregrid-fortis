@@ -67,11 +67,16 @@ export class SetFilter implements ISetFilter {
   private listContent: HTMLDivElement | undefined;
   private miniFilterTimer: ReturnType<typeof setTimeout> | undefined;
   // [libregrid-fortis] Neurotrading (Danielle Gurgel), 2026-11-21.
-  // Tree groups start expanded and stay as the user leaves them. The upstream
-  // kept an `expandedTreeGroups` set and re-added every group to it on each
-  // draw, so a collapsed group came back expanded at once: collapsing never
-  // worked. Remembering the collapsed ones keeps the same default.
-  private readonly collapsedTreeGroups = new Set<string>();
+  // Tree groups stay as the user leaves them. The upstream re-added every
+  // group to its `expandedTreeGroups` set on each draw, so a collapsed group
+  // came back expanded at once: collapsing never worked.
+  // Like Excel's date filter, the tree opens with its top level only (the
+  // years); the user opens what they want (`openTreeGroups`). While the mini
+  // filter has text, every group is open, so the matches show, and the user
+  // may close some (`closedSearchTreeGroups`, forgotten when the text
+  // changes). Clearing the search brings back the groups the user had open.
+  private readonly openTreeGroups = new Set<string>();
+  private readonly closedSearchTreeGroups = new Set<string>();
   // [libregrid-fortis] The focusable controls of the current DOM, by an
   // identity that survives a redraw (see `render`).
   private readonly focusables = new Map<string, HTMLElement>();
@@ -165,6 +170,8 @@ export class SetFilter implements ISetFilter {
 
   public setMiniFilter(newMiniFilter: string | null): void {
     this.miniFilter = newMiniFilter || null;
+    // [libregrid-fortis] A new search opens every group again (see `openTreeGroups`).
+    this.closedSearchTreeGroups.clear();
     this.updateDisplayedValues();
     this.renderList();
     this.params?.filterModifiedCallback({ miniFilterValue: this.miniFilter });
@@ -439,7 +446,9 @@ export class SetFilter implements ISetFilter {
     const row = document.createElement('div');
     row.className = 'lgr-set-filter-tree-group';
     row.style.paddingInlineStart = `${group.level * 16}px`;
-    const expanded = !this.collapsedTreeGroups.has(group.key);
+    // [libregrid-fortis] See `openTreeGroups`.
+    const searching = this.miniFilter !== null;
+    const expanded = searching ? !this.closedSearchTreeGroups.has(group.key) : this.openTreeGroups.has(group.key);
     const toggle = this.register(JSON.stringify(['toggle', group.key]), document.createElement('button'));
     toggle.type = 'button';
     toggle.textContent = expanded ? '▾' : '▸';
@@ -448,8 +457,11 @@ export class SetFilter implements ISetFilter {
     toggle.setAttribute('aria-label', group.label);
     toggle.setAttribute('aria-expanded', String(expanded));
     toggle.addEventListener('click', () => {
-      if (expanded) this.collapsedTreeGroups.add(group.key);
-      else this.collapsedTreeGroups.delete(group.key);
+      if (searching) {
+        if (expanded) this.closedSearchTreeGroups.add(group.key);
+        else this.closedSearchTreeGroups.delete(group.key);
+      } else if (expanded) this.openTreeGroups.delete(group.key);
+      else this.openTreeGroups.add(group.key);
       this.renderList();
     });
     const checkbox = this.register(JSON.stringify(['group', group.key]), document.createElement('input'));

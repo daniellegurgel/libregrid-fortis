@@ -313,35 +313,64 @@ describe('SetFilter (libregrid-fortis)', () => {
     expect(withCallback.getGui().querySelector('.lgr-set-filter > label')!.textContent).toBe('from the callback');
   });
 
-  it('keeps a collapsed tree group collapsed, also through a selection redraw', () => {
+  // One group level (the continent) and the values as its leaves, the way a date filter has year › month and the day.
+  const treeFilter = () => {
     const filter = new SetFilter();
     filter.init(
       params({
         values: ['Europe/UK', 'Europe/DE', 'Americas/US'],
         treeList: true,
-        treeListPathGetter: (value: string | null) => value?.split('/') ?? null,
+        treeListPathGetter: (value: string | null) => (value ? [value.split('/')[0]!] : null),
       }),
     );
     const gui = filter.getGui();
     const toggle = (label: string) =>
       gui.querySelector<HTMLButtonElement>(`.lgr-set-filter-tree-group > button[aria-label="${label}"]`)!;
+    return { filter, gui, toggle };
+  };
 
-    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
-    expect(gui.textContent).toContain('Europe/UK');
+  it('opens the tree with its top level only, and keeps a group as the user leaves it, also through a selection redraw', () => {
+    const { gui, toggle } = treeFilter();
+
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
+    expect(gui.textContent).toContain('Europe');
+    expect(gui.textContent).not.toContain('Europe/UK');
 
     toggle('Europe').click();
-    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
-    expect(gui.textContent).not.toContain('Europe/UK');
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
+    expect(gui.textContent).toContain('Europe/UK');
 
     const americas = gui.querySelector<HTMLInputElement>('.lgr-set-filter-tree-group input[aria-label="Americas"]')!;
     americas.checked = false;
     americas.dispatchEvent(new Event('change'));
-    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
-    expect(gui.textContent).not.toContain('Europe/UK');
-
-    toggle('Europe').click();
     expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
     expect(gui.textContent).toContain('Europe/UK');
+
+    toggle('Europe').click();
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
+    expect(gui.textContent).not.toContain('Europe/UK');
+  });
+
+  it('opens every group while searching, and brings back the groups the user had open after', () => {
+    const { filter, gui, toggle } = treeFilter();
+    toggle('Americas').click();
+
+    filter.setMiniFilter('U');
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
+    expect(gui.textContent).toContain('Europe/UK');
+    expect(gui.textContent).toContain('Americas/US');
+
+    toggle('Europe').click();
+    expect(gui.textContent).not.toContain('Europe/UK');
+
+    filter.setMiniFilter('UK');
+    expect(gui.textContent).toContain('Europe/UK');
+
+    filter.setMiniFilter(null);
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
+    expect(toggle('Americas').getAttribute('aria-expanded')).toBe('true');
+    expect(gui.textContent).not.toContain('Europe/UK');
+    expect(gui.textContent).toContain('Americas/US');
   });
 
   it('keeps the focus on the value clicked through every redraw a handler-backed filter gets', () => {
