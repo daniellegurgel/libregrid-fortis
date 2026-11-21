@@ -57,7 +57,7 @@ describe('SetFilterModule', () => {
     const events = { changed: 0, modified: 0 };
     filter.init({
       values,
-      api: { forEachLeafNode: () => undefined },
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined },
       context: undefined,
       colDef: {},
       column: {} as never,
@@ -83,7 +83,7 @@ describe('SetFilterModule', () => {
     const events = { changed: 0, modified: 0 };
     filter.init({
       values: ['UK', 'US', null, undefined] as never,
-      api: { forEachLeafNode: () => undefined },
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined },
       context: undefined,
       colDef: {},
       column: {} as never,
@@ -94,7 +94,7 @@ describe('SetFilterModule', () => {
       filterModifiedCallback: () => events.modified++,
     });
 
-    const selectAll = () => filter.getGui().querySelector<HTMLInputElement>('[aria-label="Select all filtered values"]');
+    const selectAll = () => filter.getGui().querySelector<HTMLInputElement>('.lgr-set-filter > label > input');
     expect(selectAll()).toBeTruthy();
     selectAll()!.checked = false;
     selectAll()!.dispatchEvent(new Event('change'));
@@ -114,7 +114,7 @@ describe('SetFilterModule', () => {
       values: ['Europe/UK', 'Europe/DE', 'Americas/US'],
       treeList: true,
       treeListPathGetter: (value) => value?.split('/') ?? null,
-      api: { forEachLeafNode: () => undefined },
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined },
       context: undefined,
       colDef: {},
       column: {} as never,
@@ -126,7 +126,7 @@ describe('SetFilterModule', () => {
     });
 
     expect(filter.getGui().textContent).toContain('Europe');
-    const europe = filter.getGui().querySelector<HTMLInputElement>('[aria-label="Select Europe"]');
+    const europe = filter.getGui().querySelector<HTMLInputElement>('.lgr-set-filter-tree-group input[aria-label="Europe"]');
     europe!.checked = false;
     europe!.dispatchEvent(new Event('change'));
     expect(filter.getModel()).toEqual({ filterType: 'set', values: ['Americas/US'] });
@@ -138,7 +138,7 @@ describe('SetFilterModule', () => {
       values: [{ code: 'UK', label: 'United Kingdom' }],
       keyCreator: ({ value }) => (value as { code: string }).code,
       valueFormatter: ({ value }) => (value as { label: string }).label,
-      api: { forEachLeafNode: () => undefined },
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined },
       context: undefined,
       colDef: {},
       column: {} as never,
@@ -165,13 +165,13 @@ describe('SetFilterModule', () => {
       cellRenderer: ({ value }: { value: string }) => `Rendered ${value}`,
       buttons: ['apply', 'clear', 'cancel'],
       closeOnApply: true,
-      api: { forEachLeafNode: () => undefined }, context: undefined, colDef: {}, column: {} as never,
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined }, context: undefined, colDef: {}, column: {} as never,
       getValue: () => null, doesRowPassOtherFilter: () => true, rowModel: {} as never,
       filterChangedCallback: () => undefined, filterModifiedCallback: () => undefined,
     } as never);
     filter.afterGuiAttached({ hidePopup });
     expect(filter.getGui().querySelector('[aria-label="Search filter values"]')).toBeNull();
-    expect(filter.getGui().querySelector('[aria-label="Select all filtered values"]')).toBeNull();
+    expect(filter.getGui().querySelector('.lgr-set-filter > label > input')).toBeNull();
     expect(filter.getGui().textContent).toContain('Rendered B');
     expect(filter.getGui().querySelector<HTMLElement>('.lgr-set-filter-value')?.style.height).toBe('44px');
     filter.getGui().querySelector<HTMLButtonElement>('button')!.click();
@@ -184,7 +184,7 @@ describe('SetFilterModule', () => {
     filter.init({
       values: ({ success }: { success: (values: string[]) => void }) => { resolveValues = success; },
       suppressClearModelOnRefreshValues: true,
-      api: { forEachLeafNode: () => undefined }, context: undefined, colDef: {}, column: {} as never,
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined }, context: undefined, colDef: {}, column: {} as never,
       getValue: () => null, doesRowPassOtherFilter: () => true, rowModel: {} as never,
       filterChangedCallback: () => undefined, filterModifiedCallback: () => undefined,
     } as never);
@@ -202,13 +202,13 @@ describe('SetFilterModule', () => {
     const changed = vi.fn();
     filter.init({
       values: ['UK', 'us'], caseSensitive: true,
-      api: { forEachLeafNode: () => undefined }, context: undefined, colDef: {}, column: {} as never,
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined }, context: undefined, colDef: {}, column: {} as never,
       getValue: () => null, doesRowPassOtherFilter: () => true, rowModel: {} as never,
       filterChangedCallback: changed, filterModifiedCallback: () => undefined,
     });
     filter.setMiniFilter('u');
     expect(filter.getGui().querySelectorAll('.lgr-set-filter-value')).toHaveLength(1);
-    const selectAll = filter.getGui().querySelector<HTMLInputElement>('[aria-label="Select all filtered values"]')!;
+    const selectAll = filter.getGui().querySelector<HTMLInputElement>('.lgr-set-filter > label > input')!;
     selectAll.checked = false;
     selectAll.dispatchEvent(new Event('change'));
     expect(changed).toHaveBeenCalledOnce();
@@ -218,7 +218,7 @@ describe('SetFilterModule', () => {
     const filter = new SetFilter();
     filter.init({
       values: ['B', 'A'], defaultToNothingSelected: true, comparator: (a, b) => String(b).localeCompare(String(a)),
-      api: { forEachLeafNode: () => undefined }, context: undefined, colDef: {}, column: {} as never,
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined }, context: undefined, colDef: {}, column: {} as never,
       getValue: () => null, doesRowPassOtherFilter: () => true, rowModel: {} as never,
       filterChangedCallback: () => undefined, filterModifiedCallback: () => undefined,
     });
@@ -228,12 +228,172 @@ describe('SetFilterModule', () => {
     const excel = new SetFilter();
     excel.init({
       values: ['UK'], defaultToNothingSelected: true, excelMode: 'windows',
-      api: { forEachLeafNode: () => undefined }, context: undefined, colDef: {}, column: {} as never,
+      api: { forEachLeafNode: () => undefined, getGridOption: () => undefined }, context: undefined, colDef: {}, column: {} as never,
       getValue: () => null, doesRowPassOtherFilter: () => true, rowModel: {} as never,
       filterChangedCallback: () => undefined, filterModifiedCallback: () => undefined,
     });
     expect(excel.getModel()).toBeNull();
     expect(excel.getGui().textContent).toContain('Apply');
     expect(excel.getGui().textContent).toContain('Cancel');
+  });
+});
+
+// [libregrid-fortis] Neurotrading (Danielle Gurgel), 2026-11-21.
+describe('SetFilter (libregrid-fortis)', () => {
+  const attached: HTMLElement[] = [];
+
+  afterEach(() => {
+    for (const element of attached.splice(0)) element.remove();
+  });
+
+  const params = (extra: Record<string, unknown>, gridOptions: Record<string, unknown> = {}) =>
+    ({
+      api: { forEachLeafNode: () => undefined, getGridOption: (key: string) => gridOptions[key] },
+      context: undefined,
+      colDef: {},
+      column: {} as never,
+      getValue: () => null,
+      doesRowPassOtherFilter: () => true,
+      rowModel: {} as never,
+      filterChangedCallback: () => undefined,
+      filterModifiedCallback: () => undefined,
+      ...extra,
+    }) as never;
+
+  const attach = (filter: SetFilter): HTMLElement => {
+    const gui = filter.getGui();
+    document.body.appendChild(gui);
+    attached.push(gui);
+    return gui;
+  };
+
+  const valueBox = (gui: HTMLElement, label: string): HTMLInputElement =>
+    [...gui.querySelectorAll<HTMLLabelElement>('.lgr-set-filter-value')]
+      .find((row) => row.textContent === label)!
+      .querySelector('input')!;
+
+  it("takes its texts from the grid's locale, under AG Grid's Set Filter keys", () => {
+    const filter = new SetFilter();
+    filter.init(
+      params(
+        { values: ['UK', null], buttons: ['apply'] },
+        {
+          localeText: {
+            searchOoo: 'Pesquisar...',
+            ariaSearchFilterValues: 'Pesquisar valores de filtro',
+            selectAll: '(Selecionar Todos)',
+            blanks: '(Em Branco)',
+            ariaFilterList: 'Lista de Filtros',
+            applyFilter: 'Aplicar',
+          },
+        },
+      ),
+    );
+    const gui = filter.getGui();
+    const search = gui.querySelector<HTMLInputElement>('input[type="search"]')!;
+    expect(search.placeholder).toBe('Pesquisar...');
+    expect(search.getAttribute('aria-label')).toBe('Pesquisar valores de filtro');
+    expect(gui.querySelector('.lgr-set-filter > label')!.textContent).toBe('(Selecionar Todos)');
+    expect(gui.querySelector('.lgr-set-filter > label > input')!.hasAttribute('aria-label')).toBe(false);
+    expect(gui.querySelector('.lgr-set-filter-list')!.getAttribute('aria-label')).toBe('Lista de Filtros');
+    expect(gui.textContent).toContain('(Em Branco)');
+    expect(gui.querySelector('.lgr-set-filter-actions button')!.textContent).toBe('Aplicar');
+
+    const withCallback = new SetFilter();
+    withCallback.init(
+      params(
+        { values: ['UK'] },
+        {
+          localeText: { selectAll: 'from the map' },
+          getLocaleText: ({ key, defaultValue }: { key: string; defaultValue: string }) =>
+            key === 'selectAll' ? 'from the callback' : defaultValue,
+        },
+      ),
+    );
+    expect(withCallback.getGui().querySelector('.lgr-set-filter > label')!.textContent).toBe('from the callback');
+  });
+
+  it('keeps a collapsed tree group collapsed, also through a selection redraw', () => {
+    const filter = new SetFilter();
+    filter.init(
+      params({
+        values: ['Europe/UK', 'Europe/DE', 'Americas/US'],
+        treeList: true,
+        treeListPathGetter: (value: string | null) => value?.split('/') ?? null,
+      }),
+    );
+    const gui = filter.getGui();
+    const toggle = (label: string) =>
+      gui.querySelector<HTMLButtonElement>(`.lgr-set-filter-tree-group > button[aria-label="${label}"]`)!;
+
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
+    expect(gui.textContent).toContain('Europe/UK');
+
+    toggle('Europe').click();
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
+    expect(gui.textContent).not.toContain('Europe/UK');
+
+    const americas = gui.querySelector<HTMLInputElement>('.lgr-set-filter-tree-group input[aria-label="Americas"]')!;
+    americas.checked = false;
+    americas.dispatchEvent(new Event('change'));
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('false');
+    expect(gui.textContent).not.toContain('Europe/UK');
+
+    toggle('Europe').click();
+    expect(toggle('Europe').getAttribute('aria-expanded')).toBe('true');
+    expect(gui.textContent).toContain('Europe/UK');
+  });
+
+  it('keeps the focus on the value clicked through every redraw a handler-backed filter gets', () => {
+    const onModelChange = vi.fn();
+    const onStateChange = vi.fn();
+    const managed = (model: unknown) =>
+      params({ values: ['UK', 'US', 'DE'], model, state: { model }, onModelChange, onStateChange, onUiChange: () => undefined });
+    const filter = new SetFilter();
+    filter.init(managed(null));
+    const gui = attach(filter);
+
+    const clicked = valueBox(gui, 'US');
+    clicked.focus();
+    clicked.click();
+
+    // The click redrew the list: the box clicked is gone, and its twin has the focus.
+    expect(clicked.isConnected).toBe(false);
+    expect(document.activeElement).toBe(valueBox(gui, 'US'));
+    const model = { filterType: 'set', values: ['DE', 'UK'] };
+    expect(onModelChange).toHaveBeenCalledWith(model, { source: 'ui' });
+
+    // AG Grid then sends the new model back, and the filter redraws again.
+    filter.refresh(managed(model));
+    expect(document.activeElement).toBe(valueBox(gui, 'US'));
+    expect(valueBox(gui, 'US').checked).toBe(false);
+  });
+
+  it('keeps the focus and the caret in the search box through a redraw', () => {
+    const filter = new SetFilter();
+    filter.init(params({ values: ['UK', 'US'] }));
+    const gui = attach(filter);
+    const search = () => gui.querySelector<HTMLInputElement>('input[type="search"]')!;
+    search().value = 'US';
+    filter.setMiniFilter('US');
+    search().focus();
+    search().setSelectionRange(1, 1);
+
+    filter.setModel({ filterType: 'set', values: ['US'] });
+
+    expect(document.activeElement).toBe(search());
+    expect(search().value).toBe('US');
+    expect([search().selectionStart, search().selectionEnd]).toEqual([1, 1]);
+  });
+
+  it('keeps the focus inside the filter when the focused value leaves the list', () => {
+    const filter = new SetFilter();
+    filter.init(params({ values: ['UK', 'US', 'DE'] }));
+    const gui = attach(filter);
+    valueBox(gui, 'US').focus();
+
+    filter.setMiniFilter('DE');
+
+    expect(document.activeElement).toBe(gui);
   });
 });

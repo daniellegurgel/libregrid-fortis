@@ -15,6 +15,14 @@ interface ValueEntry {
   label: string;
 }
 
+/** [libregrid-fortis] Where the focus was before a redraw (see `SetFilter.captureFocus`). */
+interface FocusMark {
+  /** The identity of the focused control; `undefined` when it was not one of them. */
+  id: string | undefined;
+  /** The caret of the search box. */
+  caret: { start: number | null; end: number | null } | undefined;
+}
+
 interface TreeGroup {
   key: string;
   label: string;
@@ -58,7 +66,15 @@ export class SetFilter implements ISetFilter {
   private list: HTMLDivElement | undefined;
   private listContent: HTMLDivElement | undefined;
   private miniFilterTimer: ReturnType<typeof setTimeout> | undefined;
-  private readonly expandedTreeGroups = new Set<string>();
+  // [libregrid-fortis] Neurotrading (Danielle Gurgel), 2026-11-21.
+  // Tree groups start expanded and stay as the user leaves them. The upstream
+  // kept an `expandedTreeGroups` set and re-added every group to it on each
+  // draw, so a collapsed group came back expanded at once: collapsing never
+  // worked. Remembering the collapsed ones keeps the same default.
+  private readonly collapsedTreeGroups = new Set<string>();
+  // [libregrid-fortis] The focusable controls of the current DOM, by an
+  // identity that survives a redraw (see `render`).
+  private readonly focusables = new Map<string, HTMLElement>();
   private hidePopup: (() => void) | undefined;
   private destroyed = false;
   private valuesRequest = 0;
@@ -66,6 +82,9 @@ export class SetFilter implements ISetFilter {
   public constructor() {
     this.gui.className = 'lgr-set-filter';
     this.gui.setAttribute('aria-label', 'Set filter');
+    // [libregrid-fortis] Where the focus goes when the control that had it is
+    // gone (see `restoreFocus`): it must stay inside the popup.
+    this.gui.tabIndex = -1;
   }
 
   public init(params: SetFilterParams): void {
@@ -223,8 +242,20 @@ export class SetFilter implements ISetFilter {
   }
 
   private render(): void {
+    // [libregrid-fortis] Neurotrading (Danielle Gurgel), 2026-11-21.
+    // Every selection change redraws the whole filter, and so does every model
+    // refresh AG Grid sends back to a handler-backed filter. The redraw used to
+    // drop the focus on the document body and scroll the list back to the top:
+    // Escape no longer reached the popup, the keyboard lost its place, and a
+    // value picked further down the list jumped out of sight. The redraw now
+    // puts the focus and the scroll position back.
+    const focus = this.captureFocus();
+    const scrollTop = this.list?.scrollTop ?? 0;
+    this.focusables.clear();
     this.gui.replaceChildren();
     if (!this.params) return;
+    // [libregrid-fortis] Texts come from the grid's locale (see `text`).
+    this.gui.setAttribute('aria-label', this.text('setFilter', 'Set filter'));
     if (!this.params.suppressMiniFilter) this.appendMiniFilter();
     if (!this.params.suppressSelectAll) this.appendSelectAll();
     this.list = document.createElement('div');
@@ -232,21 +263,84 @@ export class SetFilter implements ISetFilter {
     this.list.style.maxHeight = '240px';
     this.list.style.overflow = 'auto';
     this.list.setAttribute('role', 'group');
-    this.list.setAttribute('aria-label', 'Filter values');
-    this.list.addEventListener('scroll', () => this.renderList());
+    this.list.setAttribute('aria-label', this.text('ariaFilterList', 'Filter values'));
+    // [libregrid-fortis] Only the flat list is virtualised. The tree list is
+    // drawn whole, so scrolling it needs no redraw (it used to rebuild every
+    // group on every scroll event).
+    this.list.addEventListener('scroll', () => {
+      if (!this.params?.treeList) this.renderList();
+    });
     this.listContent = document.createElement('div');
     this.list.appendChild(this.listContent);
     this.gui.appendChild(this.list);
-    this.renderList();
+    this.renderList(scrollTop);
     this.appendActions();
+    this.restoreFocus(focus);
+  }
+
+  /**
+   * [libregrid-fortis] Neurotrading (Danielle Gurgel), 2026-11-21.
+   * Texts come from the grid's locale (`getLocaleText`, else `localeText`),
+   * under the keys AG Grid's own Set Filter uses (`searchOoo`, `selectAll`,
+   * `blanks`, ...), so a translated grid gets a translated filter. The English
+   * text is the fallback. The upstream had the English texts written in.
+   */
+  private text(key: string, defaultValue: string): string {
+    const params = this.params;
+    if (!params) return defaultValue;
+    const getLocaleText = params.api.getGridOption('getLocaleText');
+    if (getLocaleText) return getLocaleText({ key, defaultValue, api: params.api, context: params.context });
+    return params.api.getGridOption('localeText')?.[key] ?? defaultValue;
+  }
+
+  /** [libregrid-fortis] Keeps a focusable control under an identity that survives a redraw. */
+  private register<T extends HTMLElement>(id: string, element: T): T {
+    this.focusables.set(id, element);
+    return element;
+  }
+
+  /**
+   * [libregrid-fortis] Where the focus is inside the filter, before a redraw
+   * removes it: the identity of the control and, in the search box, the caret.
+   * `undefined` when the focus is not inside the filter's controls.
+   */
+  private captureFocus(): FocusMark | undefined {
+    const root = this.gui.getRootNode();
+    const active = root instanceof Document || root instanceof ShadowRoot ? root.activeElement : null;
+    if (!active || active === this.gui || !this.gui.contains(active)) return undefined;
+    for (const [id, element] of this.focusables) {
+      if (element !== active) continue;
+      const caret = element instanceof HTMLInputElement && element.type === 'search'
+        ? { start: element.selectionStart, end: element.selectionEnd }
+        : undefined;
+      return { id, caret };
+    }
+    return { id: undefined, caret: undefined };
+  }
+
+  /**
+   * [libregrid-fortis] Puts the focus back on the control with the same
+   * identity. When that control is gone (a value scrolled out of the
+   * virtualised window, say), the filter itself takes the focus, so it stays
+   * inside the popup and Escape still closes it.
+   */
+  private restoreFocus(focus: FocusMark | undefined): void {
+    if (!focus || !this.gui.isConnected) return;
+    const element = focus.id === undefined ? undefined : this.focusables.get(focus.id);
+    if (!element?.isConnected) {
+      this.gui.focus({ preventScroll: true });
+      return;
+    }
+    element.focus({ preventScroll: true });
+    if (focus.caret && element instanceof HTMLInputElement) element.setSelectionRange(focus.caret.start, focus.caret.end);
   }
 
   private appendMiniFilter(): void {
-    const input = document.createElement('input');
+    const input = this.register('miniFilter', document.createElement('input'));
     input.type = 'search';
     input.value = this.miniFilter ?? '';
-    input.placeholder = 'Search values';
-    input.setAttribute('aria-label', 'Search filter values');
+    input.placeholder = this.text('searchOoo', 'Search values');
+    input.setAttribute('aria-label', this.text('ariaSearchFilterValues', 'Search filter values'));
     input.addEventListener('input', () => {
       if (this.miniFilterTimer) clearTimeout(this.miniFilterTimer);
       const delay = this.params?.debounceMs ?? 0;
@@ -256,35 +350,43 @@ export class SetFilter implements ISetFilter {
   }
 
   private appendSelectAll(): void {
-    const checkbox = document.createElement('input');
+    const checkbox = this.register('selectAll', document.createElement('input'));
     checkbox.type = 'checkbox';
     checkbox.checked = this.areAllDisplayedSelected();
     checkbox.indeterminate = !checkbox.checked && this.displayed.some((entry) => this.isSelected(entry.key));
-    checkbox.setAttribute('aria-label', 'Select all filtered values');
     checkbox.disabled = this.params?.readOnly ?? false;
     checkbox.addEventListener('change', () => this.setDisplayedSelected(checkbox.checked));
+    // [libregrid-fortis] The label names the checkbox; the upstream also gave
+    // it an English `aria-label`, which overrode the translated label.
     const label = document.createElement('label');
-    label.append(checkbox, document.createTextNode('Select all'));
+    label.append(checkbox, document.createTextNode(this.text('selectAll', 'Select all')));
     this.gui.appendChild(label);
   }
 
-  private renderList(): void {
+  private renderList(scrollTop?: number): void {
     const list = this.list;
     const content = this.listContent;
     if (!list || !content) return;
+    // [libregrid-fortis] Redrawing the rows keeps the focus where it was (see `render`).
+    const focus = this.captureFocus();
     if (this.params?.treeList) {
       this.renderTreeList(content);
-      return;
+      if (scrollTop !== undefined) list.scrollTop = scrollTop;
+    } else {
+      const rowHeight = this.params?.cellHeight ?? 32;
+      // [libregrid-fortis] The height comes first, so a scroll position put
+      // back by `render` is not clipped by an empty list.
+      content.style.height = `${this.displayed.length * rowHeight}px`;
+      if (scrollTop !== undefined) list.scrollTop = scrollTop;
+      const start = Math.max(0, Math.floor(list.scrollTop / rowHeight) - 3);
+      const end = Math.min(this.displayed.length, start + Math.ceil(240 / rowHeight) + 6);
+      content.replaceChildren();
+      const window = document.createElement('div');
+      window.style.transform = `translateY(${start * rowHeight}px)`;
+      for (const entry of this.displayed.slice(start, end)) window.appendChild(this.createValueRow(entry, rowHeight));
+      content.appendChild(window);
     }
-    const rowHeight = this.params?.cellHeight ?? 32;
-    const start = Math.max(0, Math.floor(list.scrollTop / rowHeight) - 3);
-    const end = Math.min(this.displayed.length, start + Math.ceil(240 / rowHeight) + 6);
-    content.replaceChildren();
-    content.style.height = `${this.displayed.length * rowHeight}px`;
-    const window = document.createElement('div');
-    window.style.transform = `translateY(${start * rowHeight}px)`;
-    for (const entry of this.displayed.slice(start, end)) window.appendChild(this.createValueRow(entry, rowHeight));
-    content.appendChild(window);
+    this.restoreFocus(focus);
   }
 
   private renderTreeList(content: HTMLDivElement): void {
@@ -314,7 +416,6 @@ export class SetFilter implements ISetFilter {
           };
           groups.set(identity, group);
           siblings.push(group);
-          this.expandedTreeGroups.add(identity);
         }
         parentPath.push(pathKey);
         siblings = group.children;
@@ -338,23 +439,26 @@ export class SetFilter implements ISetFilter {
     const row = document.createElement('div');
     row.className = 'lgr-set-filter-tree-group';
     row.style.paddingInlineStart = `${group.level * 16}px`;
-    const expanded = this.expandedTreeGroups.has(group.key);
-    const toggle = document.createElement('button');
+    const expanded = !this.collapsedTreeGroups.has(group.key);
+    const toggle = this.register(JSON.stringify(['toggle', group.key]), document.createElement('button'));
     toggle.type = 'button';
     toggle.textContent = expanded ? '▾' : '▸';
-    toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} ${group.label}`);
+    // [libregrid-fortis] The state goes in `aria-expanded` and the name is the
+    // group's label, instead of the English "Collapse"/"Expand"/"Select".
+    toggle.setAttribute('aria-label', group.label);
+    toggle.setAttribute('aria-expanded', String(expanded));
     toggle.addEventListener('click', () => {
-      if (expanded) this.expandedTreeGroups.delete(group.key);
-      else this.expandedTreeGroups.add(group.key);
+      if (expanded) this.collapsedTreeGroups.add(group.key);
+      else this.collapsedTreeGroups.delete(group.key);
       this.renderList();
     });
-    const checkbox = document.createElement('input');
+    const checkbox = this.register(JSON.stringify(['group', group.key]), document.createElement('input'));
     checkbox.type = 'checkbox';
     const leaves = this.collectTreeLeaves(group);
     checkbox.checked = leaves.every((entry) => this.isSelected(entry.key));
     checkbox.indeterminate = !checkbox.checked && leaves.some((entry) => this.isSelected(entry.key));
     checkbox.disabled = this.params?.readOnly ?? false;
-    checkbox.setAttribute('aria-label', `Select ${group.label}`);
+    checkbox.setAttribute('aria-label', group.label);
     checkbox.addEventListener('change', () => this.setEntriesSelected(leaves, checkbox.checked));
     const label = document.createElement('span');
     label.textContent = group.label;
@@ -377,7 +481,7 @@ export class SetFilter implements ISetFilter {
     const label = document.createElement('label');
     label.className = 'lgr-set-filter-value';
     label.style.height = `${rowHeight}px`;
-    const checkbox = document.createElement('input');
+    const checkbox = this.register(JSON.stringify(['value', entry.key]), document.createElement('input'));
     checkbox.type = 'checkbox';
     checkbox.checked = this.isSelected(entry.key);
     checkbox.disabled = this.params?.readOnly ?? false;
@@ -397,9 +501,10 @@ export class SetFilter implements ISetFilter {
     const actions = document.createElement('div');
     actions.className = 'lgr-set-filter-actions';
     for (const action of buttons) {
-      const button = document.createElement('button');
+      const button = this.register(JSON.stringify(['action', action]), document.createElement('button'));
       button.type = 'button';
-      button.textContent = action[0]!.toUpperCase() + action.slice(1);
+      // [libregrid-fortis] `applyFilter`, `clearFilter`, `resetFilter`, `cancelFilter`: AG Grid's keys.
+      button.textContent = this.text(`${action}Filter`, action[0]!.toUpperCase() + action.slice(1));
       button.addEventListener('click', () => this.handleAction(action));
       actions.appendChild(button);
     }
@@ -518,7 +623,7 @@ export class SetFilter implements ISetFilter {
   }
 
   private labelFor(value: unknown): string {
-    if (value === null) return '(Blanks)';
+    if (value === null) return this.text('blanks', '(Blanks)');
     if (value === undefined) return '(Undefined)';
     const valueFormatter = this.params?.valueFormatter ?? this.params?.colDef.valueFormatter;
     if (typeof valueFormatter === 'function' && this.params) {
